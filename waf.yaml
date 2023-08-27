@@ -1,0 +1,343 @@
+AWSTemplateFormatVersion: 2010-09-09
+
+Parameters:
+
+  S3BucketArn:
+    Type: String
+    Description: "Arn of S3 Bucket"
+
+  # WebACLArn:
+  #   Type: String
+  #   Description: "Arn of WebACL"
+
+Resources:
+  WAFWebACL:
+    Type: "AWS::WAFv2::WebACL"
+    Properties:
+      Name: test-webacls
+      Scope: REGIONAL
+      DefaultAction:
+        Allow: {}
+      VisibilityConfig:
+        SampledRequestsEnabled: true
+        CloudWatchMetricsEnabled: true
+        MetricName: test-webacls
+      Rules:
+        - Name: test-size-restriction # 1 サイズ制限用WAFルール
+          Priority: 10
+          Action:
+            Block: {}
+          Statement:
+            OrStatement:
+              Statements:
+                - SizeConstraintStatement:
+                    FieldToMatch:
+                      UriPath: {}
+                    ComparisonOperator: GT
+                    Size: 1400
+                    TextTransformations:
+                      - Type: NONE
+                        Priority: 10
+                - SizeConstraintStatement:
+                    FieldToMatch:
+                      QueryString: {}
+                    ComparisonOperator: GT
+                    Size: 2048
+                    TextTransformations:
+                      - Type: NONE
+                        Priority: 10
+                - SizeConstraintStatement:
+                    FieldToMatch:
+                      Body: 
+                       OversizeHandling: "CONTINUE"
+                    ComparisonOperator: GT
+                    Size: 3000
+                    TextTransformations:
+                      - Type: NONE
+                        Priority: 10
+                - SizeConstraintStatement:
+                    FieldToMatch:
+                      SingleHeader:
+                        Name: "cookie"
+                    ComparisonOperator: GT
+                    Size: 4098
+                    TextTransformations:
+                      - Type: NONE
+                        Priority: 10
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: test-size-restriction
+        - Name: mitigate-sql # 2 SQLインジェクション対策用WAFルール
+          Priority: 40
+          Action:
+            Block: {}
+          Statement:
+            OrStatement:
+              Statements:
+                - SqliMatchStatement:
+                    FieldToMatch:
+                      UriPath: {}
+                    TextTransformations:
+                      - Type: URL_DECODE
+                        Priority: 10
+                      - Type: HTML_ENTITY_DECODE
+                        Priority: 20
+                - SqliMatchStatement:
+                    FieldToMatch:
+                      QueryString: {}
+                    TextTransformations:
+                      - Type: URL_DECODE
+                        Priority: 10
+                      - Type: HTML_ENTITY_DECODE
+                        Priority: 20
+                - SqliMatchStatement:
+                    FieldToMatch:
+                      Body: 
+                        OversizeHandling: "CONTINUE"
+                    TextTransformations:
+                      - Type: URL_DECODE
+                        Priority: 10
+                      - Type: HTML_ENTITY_DECODE
+                        Priority: 20
+                    # OversizeHandling: MATCH # Add 2023/6/20
+                - SqliMatchStatement:
+                    FieldToMatch:
+                      SingleHeader:
+                        Name: "cookie"
+                    TextTransformations:
+                      - Type: URL_DECODE
+                        Priority: 10
+                      - Type: HTML_ENTITY_DECODE
+                        Priority: 20
+                - SqliMatchStatement:
+                    FieldToMatch:
+                      SingleHeader:
+                        Name: "authorization"
+                    TextTransformations:
+                      - Type: URL_DECODE
+                        Priority: 10
+                      - Type: HTML_ENTITY_DECODE
+                        Priority: 20
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: test-mitigate-sql
+
+        - Name: test-mitigate-xss # 3 クロスサイトスクリプティング攻撃対策ルール  
+          Priority: 50
+          Action:
+            Block: {}
+          Statement:
+            OrStatement:
+              Statements:
+                - XssMatchStatement:
+                    FieldToMatch:
+                      UriPath: {}
+                    TextTransformations:
+                      - Type: URL_DECODE
+                        Priority: 10
+                      - Type: HTML_ENTITY_DECODE
+                        Priority: 20                      
+                - XssMatchStatement:
+                    FieldToMatch:
+                      QueryString: {}
+                    TextTransformations:
+                      - Type: URL_DECODE
+                        Priority: 10
+                      - Type: HTML_ENTITY_DECODE
+                        Priority: 20                        
+                - XssMatchStatement:
+                    FieldToMatch:
+                      Body: 
+                        OversizeHandling: "CONTINUE"
+                    TextTransformations:
+                      - Type: URL_DECODE
+                        Priority: 10
+                      - Type: HTML_ENTITY_DECODE
+                        Priority: 20
+                - XssMatchStatement:
+                    FieldToMatch:
+                      SingleHeader:
+                        Name: "Cookie"
+                    TextTransformations:
+                      - Type: URL_DECODE
+                        Priority: 10
+                      - Type: HTML_ENTITY_DECODE
+                        Priority: 20
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: test-mitigate-xss
+        
+        - Name: test-detect-rfi-lfi-traversal # 4 ディレクトリトラバーサル攻撃対策ルール
+          Priority: 60
+          Action:
+            Block: {}
+          Statement:
+            OrStatement:
+              Statements:
+                - ByteMatchStatement:
+                    FieldToMatch:
+                      UriPath: {}
+                    TextTransformations:
+                      - Type: URL_DECODE
+                        Priority: 10
+                      - Type: HTML_ENTITY_DECODE
+                        Priority: 20
+                    PositionalConstraint: CONTAINS
+                    SearchString: "../"
+                - ByteMatchStatement:
+                    FieldToMatch:
+                      QueryString: {}
+                    TextTransformations:
+                      - Type: URL_DECODE
+                        Priority: 10
+                      - Type: HTML_ENTITY_DECODE
+                        Priority: 20
+                    PositionalConstraint: CONTAINS
+                    SearchString: "../"
+                - ByteMatchStatement:
+                    FieldToMatch:
+                      UriPath: {}
+                    TextTransformations:
+                      - Type: URL_DECODE
+                        Priority: 10
+                      - Type: HTML_ENTITY_DECODE
+                        Priority: 20
+                    PositionalConstraint: CONTAINS
+                    SearchString: "://"
+                - ByteMatchStatement:
+                    FieldToMatch:
+                      QueryString: {}
+                    TextTransformations:
+                      - Type: URL_DECODE
+                        Priority: 10
+                      - Type: HTML_ENTITY_DECODE
+                        Priority: 20
+                    PositionalConstraint: CONTAINS
+                    SearchString: "://"
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: test-detect-rfi-lfi-traversal
+
+        - Name:  test-detect-ssi # 5 SSI（Server Side Includes）を検出するWAFルール
+          Priority: 100
+          Action:
+            Block: {}
+          Statement:
+            OrStatement:
+              Statements:
+                - ByteMatchStatement:
+                    FieldToMatch:
+                      UriPath: {}
+                    TextTransformations:
+                      - Type: LOWERCASE
+                        Priority: 10
+                    PositionalConstraint: ENDS_WITH
+                    SearchString: ".cfg"
+                - ByteMatchStatement:
+                    FieldToMatch:
+                      UriPath: {}
+                    TextTransformations:
+                      - Type: LOWERCASE
+                        Priority: 10
+                    PositionalConstraint: ENDS_WITH
+                    SearchString: ".conf"
+                - ByteMatchStatement:
+                    FieldToMatch:
+                      UriPath: {}
+                    TextTransformations:
+                      - Type: LOWERCASE
+                        Priority: 10
+                    PositionalConstraint: ENDS_WITH
+                    SearchString: ".ini"
+                - ByteMatchStatement:
+                    FieldToMatch:
+                      UriPath: {}
+                    TextTransformations:
+                      - Type: LOWERCASE
+                        Priority: 10
+                    PositionalConstraint: ENDS_WITH
+                    SearchString: ".log"
+                - ByteMatchStatement:
+                    FieldToMatch:
+                      UriPath: {}
+                    TextTransformations:
+                      - Type: LOWERCASE
+                        Priority: 10
+                    PositionalConstraint: ENDS_WITH
+                    SearchString: ".bak"
+                - ByteMatchStatement:
+                    FieldToMatch:
+                      UriPath: {}
+                    TextTransformations:
+                      - Type: LOWERCASE
+                        Priority: 10
+                    PositionalConstraint: ENDS_WITH
+                    SearchString: ".backup"
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: test-detect-ssi
+        
+        - Name: test-geo-restriction # 6 地理的制限WAFルール
+          Priority: 110
+          Action:
+            Block: {}
+          Statement:
+            GeoMatchStatement:
+              CountryCodes:
+                - IR
+                - SS
+                - SD
+                - CU
+                
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: test-geo-restriction
+        
+        - Name: AWSManagedRulesKnownBadInputsRuleSet # 7 known-bad-input
+          Priority: 1
+          OverrideAction:
+            None: {}
+          VisibilityConfig:
+            SampledRequestsEnabled: true # サンプリングリクエストの有効化
+            CloudWatchMetricsEnabled: true # CloudWatchメトリクスの有効化
+            MetricName: AWSManagedRulesKnownBadInputsRuleSet # メトリクスの名前
+          Statement:
+            ManagedRuleGroupStatement:  # AWSマネージドルールグループの設定
+              VendorName: AWS
+              Name: AWSManagedRulesKnownBadInputsRuleSet
+              ExcludedRules: []
+  #APIGateway作成後にこちらをコメントアウトし、ResourceArnを適切なものに修正してください。
+  # WAFWebACLAssociation: # APIGateway関連付け
+  #   Type: "AWS::WAFv2::WebACLAssociation"
+  #   Properties:
+  #     ResourceArn: "arn:aws:apigateway:ap-northeast-1::/restapis/wi9eplhyub/stages/v1"
+  #     WebACLArn: !GetAtt WAFWebACL.Arn
+
+  WAFLogConfig: # WAFのログ設定を指定しています
+    Type: "AWS::WAFv2::LoggingConfiguration"
+    Properties:
+      ResourceArn: !GetAtt WAFWebACL.Arn # 関連するWAF WebACLのARNを指定しています
+      LogDestinationConfigs: # ログの送信先となるS3バケットを指定しています
+        - !Ref S3BucketArn
+      # LoggingFilter: # ログのフィルタリング動作を定義しています
+      #   DefaultBehavior: KEEP
+      #   Filters:
+      #     - Behavior: KEEP
+      #       Conditions:
+      #         - ActionCondition:
+      #             Action: ALLOW
+      #       Requirement: MEETS_ALL
+      RedactedFields:
+        - UriPath: {} # UriPath フィールドがマスクされます
+
+Outputs:
+ WebACLId:
+  Value: !GetAtt WAFWebACL.Arn
+  Export:
+   Name: spf-dev-test-webacls
