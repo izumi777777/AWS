@@ -1,0 +1,29 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: >
+  Description: >
+  create lambda templates
+  CloudFormationでLambdaを作成する場合、大別すると以下の3パターンあります。
+
+   ・Lambdaで使用するコードをZipでまとめたファイルをアップロードするバケット
+
+Parameters:
+ BucketName:
+    Type: String
+    Default: pak-dev-lambda-bucket-19880104
+
+Resources:
+# ==========================================================================
+# LambdaのコードをアップロードするS3バケットの作成
+# ==========================================================================
+  SampleLambdaS3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${BucketName}
+      AccessControl: Private
+
+Outputs:
+ SampleLambdaS3BucketArn:
+    Description: "SampleLambdaS3Bucket ARN"
+    Value: !GetAtt SampleLambdaS3Bucket.Arn
+    Export:
+      Name: SampleLambdaS3BucketArn

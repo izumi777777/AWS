@@ -1,0 +1,103 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: >
+  create lambda templates
+  CloudFormationでLambdaを作成する場合、大別すると以下の3パターンあります。
+
+   ・S3バケットにコードをアップロードする
+   ・インラインでコードを記載する
+   ・コンテナイメージを用意する
+  
+  今回はこのS3バケットにコードをアップロードするパターンです。
+
+Parameters:
+  FunctionName:
+    Type: String
+    Default: "test-lambda-ver01"
+
+Resources:
+# ==========================================================================
+# LambdaのIAMロール作成
+# ==========================================================================
+  SampleLambdaFunctionIAMRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${FunctionName}-role"
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - 'sts:AssumeRole'
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+      Policies:
+          - PolicyName: sample-write-clowdwatchlogs-policy
+            PolicyDocument:
+              Version: 2012-10-17
+              Statement:
+                - Effect: Allow
+                  Action:
+                    - "logs:CreateLogStream"
+                    - "logs:PutLogEvents"
+                    - "logs:CreateLogGroup"
+                  Resource: !Sub "arn:${AWS::Partition}:logs:*:*:*"
+                
+# ==========================================================================
+# Lambdaの作成
+# ==========================================================================
+  SampleLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.handler
+      Role: !GetAtt SampleLambdaFunctionIAMRole.Arn
+      FunctionName: !Sub ${FunctionName}
+      Code:
+        S3Bucket: "pak-dev-lambda-bucket-19880104"
+        S3Key: lambda.zip
+      Runtime: python3.8
+
+# ==========================================================================
+# APIGatewayの作成
+# ==========================================================================
+  SampleApiGateway:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: SampleAPI
+
+# ==========================================================================
+# API Gatewayリソース作成
+# ==========================================================================
+  SampleApiResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref SampleApiGateway
+      ParentId: !GetAtt SampleApiGateway.RootResourceId
+      PathPart: "myresource"
+
+  SampleApiMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: NONE
+      HttpMethod: GET
+      ResourceId: !Ref SampleApiResource
+      RestApiId: !Ref SampleApiGateway
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${SampleLambdaFunction.Arn}/invocations
+
+# ==========================================================================
+# Lambda関数へのAPI Gatewayのアクセス許可
+# ==========================================================================
+  SampleLambdaApiGatewayPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref SampleLambdaFunction
+      Principal: apigateway.amazonaws.com
+      
+Outputs:
+  LambdaFunctionArn:
+    Description: "Lambda Function ARN"
+    Value: !GetAtt SampleLambdaFunction.Arn
